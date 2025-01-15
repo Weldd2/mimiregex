@@ -43,12 +43,147 @@ CharacterClass = ... ;  // Contiendra la logique pour les ranges, ex: [a-zA-Z0-9
 Number        = [0-9]+ ;
 ```
 
-Ceci est un point de départ, libre à vous de l’ajuster selon vos besoins.  
 
-**Étapes préalables** :  
-1. Définir les règles d’échappement ( `\(`, `\*`, etc. ).  
-2. Gérer éventuellement les groupes de capture : `(` et `)`.  
-3. (Optionnel) Gérer des groupes non-capturants : `(?: ... )`.  
+## 2.1 Qu’est-ce qu’une grammaire EBNF ?
+
+- **EBNF** signifie *Extended Backus–Naur Form*. C’est une façon de décrire la syntaxe d’un langage (ici, un sous-ensemble de regex).  
+- Quand on lit une règle comme :
+  ```
+  Regex = Alternative ( "|" Alternative )* ;
+  ```
+  on l’interprète de cette façon : “Un **Regex** est composé d’une **Alternative**, suivie de zéro ou plusieurs occurrences de `|` puis d’une autre **Alternative**.”
+
+- Les symboles suivants sont importants :  
+  - `*` après un élément signifie “zéro ou plusieurs fois”  
+  - `+` signifie “une ou plusieurs fois”  
+  - `?` signifie “zéro ou une fois”  
+  - Les parenthèses `( ... )` servent à regrouper des sous-éléments  
+
+---
+
+## 2.2 Décomposition règle par règle
+
+Voici la grammaire donnée :
+
+```
+Regex         = Alternative ( "|" Alternative )* ;
+Alternative   = Concatenation+ ;
+Concatenation = QuantifiedAtom+ ;
+QuantifiedAtom = Atom Quantifier? ;
+Atom          = Char
+              | "."
+              | "(" Regex ")"
+              | "[" CharacterClass "]" ;
+Quantifier    = "*" | "+" | "?" | "{" Number ( "," Number )? "}" ;
+CharacterClass = ... ;  // Contiendra la logique pour les ranges, ex: [a-zA-Z0-9]
+Number        = [0-9]+ ;
+```
+
+### 2.2.1. `Regex = Alternative ( "|" Alternative )* ;`
+- **Signification** : Un `Regex` est une ou plusieurs “Alternatives” séparées par le symbole `|`.  
+- **Pourquoi ?** : Dans de nombreuses syntaxes de regex, le `|` correspond à l’opérateur “ou” (alternation).  
+- **Exemple** : l’expression `ab|cd` contient deux `Alternative` : `ab` d’un côté et `cd` de l’autre.  
+- **En pratique** :  
+  - On lit la première `Alternative`.  
+  - Puis, si on trouve un `|`, on en lit une deuxième, et ainsi de suite.  
+  - Cela signifie que la regex `Regex = A|B|C` matchera soit A, soit B, soit C.
+
+---
+
+### 2.2.2. `Alternative = Concatenation+ ;`
+- **Signification** : Une “Alternative” est une ou plusieurs “Concatenations”.  
+- **Pourquoi “Concatenation+” ?** :  
+  - En fait, une “Alternative” peut être vue comme une suite de morceaux qui se suivent (une concaténation), parfois d’ailleurs on peut simplifier en disant “une Alternative est simplement une concaténation d’éléments”.  
+  - Le `+` veut dire : au moins un “Concatenation”.  
+- **Exemple** : si on prend la partie `ab` dans la regex `ab|cd`, on peut voir `ab` comme un enchaînement (une concaténation) de deux atomes `a` et `b`.
+
+(*Selon la grammaire, vous pourriez parfois combiner `Alternative` et `Concatenation` de différentes manières. Ici, l’auteur sépare conceptuellement l’opérateur “ou” (Alternative) de l’opérateur “suivi” (Concatenation).*)
+
+---
+
+### 2.2.3. `Concatenation = QuantifiedAtom+ ;`
+- **Signification** : Une “Concatenation” est une suite d’un ou plusieurs “QuantifiedAtom”.  
+- **Idée** : Dans une regex, on enchaîne souvent plusieurs unités. Par exemple, `abc\d+` est une concaténation de trois parties :  
+  1. `a`  
+  2. `b`  
+  3. `c\d+` (ce dernier serait un “Atom” suivi d’un quantificateur +)  
+- **Le `+`** : Encore une fois, indique qu’on doit avoir au moins un “QuantifiedAtom”, et on peut en avoir plusieurs (ex: `QuantifiedAtom QuantifiedAtom QuantifiedAtom...`).
+
+---
+
+### 2.2.4. `QuantifiedAtom = Atom Quantifier? ;`
+- **Signification** : Un “QuantifiedAtom” est un “Atom” suivi (optionnellement) d’un “Quantifier”.  
+- **Exemples** :  
+  - `a*` : Ici, `Atom = 'a'`, `Quantifier = '*'`  
+  - `a` (sans rien) : Ici, c’est un “Atom” sans quantificateur.  
+  - `(ab)?` : Ici, `Atom = '(ab)'` et `Quantifier = '?'`.  
+- **Le `?`** après `Quantifier` indique qu’on peut mettre un quantificateur ou non.  
+
+En gros, cette règle capture l’idée que dans une regex, on a un “truc” (un atome) qui peut se répéter ou non, de diverses manières (par *, +, ?, ou {m,n}).
+
+---
+
+### 2.2.5. `Atom = Char | "." | "(" Regex ")" | "[" CharacterClass "]" ;`
+Cette règle décrit **tout ce qui peut être un “atome”** au sens regex :
+
+1. `Char` : un caractère normal, par exemple `'a'` ou `'b'`.  
+2. `.` : le caractère joker, qui match “n’importe quel caractère”.  
+3. `(` Regex `)` : un groupe (qui peut être capturant). Cela signifie qu’à l’intérieur des parenthèses, on a toute une regex complète (on retombe donc sur la règle `Regex`).  
+4. `[` CharacterClass `]` : une classe de caractères, comme `[a-z0-9]`.  
+
+**Idée générale** : un “atome” est l’unité de base qui peut se répéter (via les quantificateurs).  
+
+---
+
+### 2.2.6. `Quantifier = "*" | "+" | "?" | "{" Number ( "," Number )? "}" ;`
+- **Signification** : Le “Quantifier” peut être :
+  1. `*` : signifie “zéro ou plusieurs fois”  
+  2. `+` : signifie “une ou plusieurs fois”  
+  3. `?` : signifie “zéro ou une fois”  
+  4. `{ Number ( "," Number )? }` : signifie “répétitions bornées”, par ex. `{2}` ou `{2,4}`.  
+     - `Number ( "," Number )?` veut dire : un nombre suivi éventuellement d’une virgule et d’un deuxième nombre.  
+- **Exemple** :  
+  - `{3}` veut dire “exactement 3 fois”  
+  - `{2,5}` veut dire “entre 2 et 5 fois”  
+  - `{,5}` ou `{2,}` (selon la syntaxe autorisée) peuvent être des abréviations pour “0 à 5 fois” ou “au moins 2 fois”.  
+
+---
+
+### 2.2.7. `CharacterClass = ... ;`
+- **Signification** : Une “CharacterClass” représente ce qu’il y a entre les crochets `[ ]`.  
+  - Par exemple : `[a-zA-Z0-9]`.  
+  - On peut avoir des plages (ranges) `a-z`, des caractères séparés, `^` pour la négation, etc.  
+- **Ici**, la grammaire dit simplement `...` parce que la logique peut devenir plus complexe. On pourrait préciser :
+
+  ```
+  CharacterClass = ( "^"? ClassAtomRange+ ) ;
+  ClassAtomRange = ClassAtom ( "-" ClassAtom )? ;
+  ClassAtom = ... // un caractère, ou un caractère échappé
+  ```
+
+  ... et ainsi de suite, selon le niveau de détail voulu.  
+
+**Le principe** est : à l’intérieur de `[ ]`, on définit un ensemble de caractères possibles.
+
+---
+
+### 2.2.8. `Number = [0-9]+ ;`
+- **Signification** : Un “Number” est une suite d’un ou plusieurs chiffres (0-9).  
+- **Usage** : On l’emploie notamment pour les quantificateurs `{m,n}`.  
+
+---
+
+# 3. Comment tout cela s’articule ?
+
+En pratique, quand vous parsez (analysez) une chaîne de caractères représentant une regex, vous procédez dans l’ordre :
+
+1. **Regex** : Chercher des `Alternative`s séparées par `|`.  
+2. **Alternative** : Chacune se décompose en plusieurs “Concatenation”.  
+3. **Concatenation** : Chaque partie est un “QuantifiedAtom”.  
+4. **QuantifiedAtom** : Un “Atom” qui peut être suivi d’un quantificateur (optionnel).  
+5. **Atom** : Peut être un caractère normal, un point `.`, un groupe `(...)`, ou une classe `[ ... ]`.  
+
+Chaque fois qu’on descend d’une règle à l’autre, on lit la chaîne de caractères selon la structure définie par la grammaire.
 
 ---
 
@@ -262,6 +397,18 @@ Pour assurer que tout fonctionne, préparez un ensemble de tests :
    - Décider si vous voulez supporter des fonctionnalités plus complexes (lookaround, backreferences, etc.). Pour l’instant, c’est hors du scope si vous voulez rester “mini”.  
 
 ---
+
+## Liens utiles
+
+   - **AST**
+      - https://medium.com/basecs/leveling-up-ones-parsing-game-with-asts-d7a6fc2400ff
+      - https://www.cs.columbia.edu/~sedwards/classes/2003/w4115/ast.pdf
+      - https://www-inf.telecom-sudparis.eu/COURS/CSC4251_4252/Diapos/c06-arbredesyntaxeabstraite-diapos.pdf
+      - https://astexplorer.net/
+      - https://keleshev.com/abstract-syntax-tree-an-example-in-c/
+
+N'hésitez pas à rajouter d'autres liens pertinents.
+
 
 ## Conclusion
 
