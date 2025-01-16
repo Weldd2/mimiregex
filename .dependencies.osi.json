@@ -1,0 +1,9 @@
+{
+	"name": "push_swap",
+	"dependencies": [
+		{
+			"name": "mem",
+			"repo": "git@github.com:Weldd2/42_libamura_mem.git"
+		}
+	]
+}
